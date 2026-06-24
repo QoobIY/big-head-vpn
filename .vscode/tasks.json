@@ -1,0 +1,18 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Android: assemble debug",
+      "type": "shell",
+      "command": "env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy ANDROID_HOME=${workspaceFolder}/.android-sdk GRADLE_USER_HOME=${workspaceFolder}/.gradle ./gradlew assembleDebug",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Android: clean",
+      "type": "shell",
+      "command": "env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy ANDROID_HOME=${workspaceFolder}/.android-sdk GRADLE_USER_HOME=${workspaceFolder}/.gradle ./gradlew clean",
+      "problemMatcher": []
+    }
+  ]
+}

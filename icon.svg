@@ -1,0 +1,161 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#c6ab67"/>
+      <stop offset="100%" stop-color="#8f7338"/>
+    </linearGradient>
+    <linearGradient id="shieldGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#111714"/>
+      <stop offset="100%" stop-color="#090c0b"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="16" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+    <style>
+      .outline{stroke:url(#gold);stroke-width:10;stroke-linecap:round;stroke-linejoin:round;fill:none}
+      .thin{stroke:#4f6f4c;stroke-width:6;stroke-linecap:round;stroke-linejoin:round;fill:none;opacity:.95}
+      .poly{stroke:#233323;stroke-width:5;stroke-linejoin:round}
+      .goldStroke{stroke:#a78d56;stroke-width:5;stroke-linejoin:round}
+      .eye{fill:#d9c86d;stroke:#7e6b2e;stroke-width:3}
+    </style>
+  </defs>
+
+  <!-- transparent background -->
+  <g filter="url(#shadow)">
+    <!-- outer emblem -->
+    <path class="outline" d="M512 86
+      L548 128
+      L684 146
+      L796 236
+      L852 364
+      L862 518
+      L824 660
+      L738 778
+      L612 850
+      L512 938
+      L412 850
+      L286 778
+      L200 660
+      L162 518
+      L172 364
+      L228 236
+      L340 146
+      L476 128 Z"/>
+
+    <path d="M512 142
+      C670 142 796 286 796 470
+      C796 653 666 806 512 878
+      C358 806 228 653 228 470
+      C228 286 354 142 512 142 Z" fill="url(#shieldGrad)" stroke="#9a8147" stroke-width="5"/>
+
+    <!-- circuit motifs -->
+    <g>
+      <path class="thin" d="M298 372 L340 372 L380 416 L420 416"/>
+      <path class="thin" d="M278 438 L322 438 L370 488 L422 488"/>
+      <path class="thin" d="M290 520 L336 520 L392 574 L440 574"/>
+      <path class="thin" d="M314 612 L360 612 L410 660 L458 660"/>
+      <path class="thin" d="M346 706 L398 706 L436 742"/>
+      <circle cx="298" cy="372" r="8" fill="#708a62"/>
+      <circle cx="278" cy="438" r="8" fill="#708a62"/>
+      <circle cx="290" cy="520" r="8" fill="#708a62"/>
+      <circle cx="314" cy="612" r="8" fill="#708a62"/>
+      <circle cx="346" cy="706" r="8" fill="#708a62"/>
+      <circle cx="422" cy="488" r="8" fill="#708a62"/>
+      <circle cx="440" cy="574" r="8" fill="#708a62"/>
+      <circle cx="458" cy="660" r="8" fill="#708a62"/>
+
+      <path class="thin" d="M726 372 L684 372 L644 416 L604 416"/>
+      <path class="thin" d="M746 438 L702 438 L654 488 L602 488"/>
+      <path class="thin" d="M734 520 L688 520 L632 574 L584 574"/>
+      <path class="thin" d="M710 612 L664 612 L614 660 L566 660"/>
+      <path class="thin" d="M678 706 L626 706 L588 742"/>
+      <circle cx="726" cy="372" r="8" fill="#708a62"/>
+      <circle cx="746" cy="438" r="8" fill="#708a62"/>
+      <circle cx="734" cy="520" r="8" fill="#708a62"/>
+      <circle cx="710" cy="612" r="8" fill="#708a62"/>
+      <circle cx="678" cy="706" r="8" fill="#708a62"/>
+      <circle cx="602" cy="488" r="8" fill="#708a62"/>
+      <circle cx="584" cy="574" r="8" fill="#708a62"/>
+      <circle cx="566" cy="660" r="8" fill="#708a62"/>
+    </g>
+
+    <!-- ears -->
+    <polygon class="poly" fill="#7f9141" points="352,414 290,446 354,484 392,442"/>
+    <polygon class="poly" fill="#65792f" points="308,452 332,448 356,472 336,482"/>
+    <polygon class="poly" fill="#4e6127" points="332,448 354,484 370,456"/>
+
+    <polygon class="poly" fill="#7f9141" points="672,414 734,446 670,484 632,442"/>
+    <polygon class="poly" fill="#65792f" points="716,452 692,448 668,472 688,482"/>
+    <polygon class="poly" fill="#4e6127" points="692,448 670,484 654,456"/>
+
+    <!-- big rounded jimmy-neutron-like head -->
+    <g>
+      <!-- cranium -->
+      <polygon class="poly" fill="#8e9b46" points="512,168 430,194 374,252 352,330 370,398 426,442 512,458 598,442 654,398 672,330 650,252 594,194"/>
+      <polygon class="poly" fill="#9ca955" points="512,168 430,194 448,258 512,276 576,258 594,194"/>
+      <polygon class="poly" fill="#899843" points="430,194 374,252 390,322 448,258"/>
+      <polygon class="poly" fill="#7d8d3b" points="374,252 352,330 402,388 390,322"/>
+      <polygon class="poly" fill="#879542" points="448,258 390,322 402,388 470,414 512,388 512,276"/>
+      <polygon class="poly" fill="#7c8939" points="594,194 650,252 634,322 576,258"/>
+      <polygon class="poly" fill="#6f7e34" points="650,252 672,330 622,388 634,322"/>
+      <polygon class="poly" fill="#81903e" points="576,258 634,322 622,388 554,414 512,388 512,276"/>
+      <polygon class="poly" fill="#95a54f" points="470,414 512,388 554,414 512,458"/>
+      <!-- spots/facets -->
+      <polygon class="poly" fill="#738133" points="446,216 468,210 484,228 462,236" opacity="0.55"/>
+      <polygon class="poly" fill="#738133" points="572,220 594,228 582,246 560,238" opacity="0.55"/>
+      <polygon class="poly" fill="#738133" points="414,286 438,280 446,302 420,310" opacity="0.5"/>
+      <polygon class="poly" fill="#738133" points="608,284 630,292 622,314 598,306" opacity="0.5"/>
+    </g>
+
+    <!-- face -->
+    <g>
+      <polygon class="poly" fill="#6e8136" points="428,430 474,420 512,426 460,456"/>
+      <polygon class="poly" fill="#6a7d33" points="596,430 550,420 512,426 564,456"/>
+      <polygon class="poly" fill="#5c6e2d" points="460,456 512,426 564,456 548,486 512,494 476,486"/>
+      <polygon class="poly" fill="#72863a" points="420,452 460,456 476,486 434,492 400,474"/>
+      <polygon class="poly" fill="#72863a" points="604,452 564,456 548,486 590,492 624,474"/>
+
+      <!-- eyebrows -->
+      <polygon class="poly" fill="#3a4820" points="432,456 474,444 494,454 458,468 426,468"/>
+      <polygon class="poly" fill="#3a4820" points="592,456 550,444 530,454 566,468 598,468"/>
+
+      <!-- eyes -->
+      <polygon class="eye" points="446,472 476,466 494,474 472,490 446,488"/>
+      <polygon class="eye" points="578,472 548,466 530,474 552,490 578,488"/>
+      <polygon fill="#121611" points="464,476 474,474 476,484 466,486"/>
+      <polygon fill="#121611" points="560,476 550,474 548,484 558,486"/>
+
+      <!-- nose -->
+      <polygon class="poly" fill="#7e9340" points="500,482 524,482 536,510 512,522 488,510"/>
+      <polygon class="poly" fill="#5c6e2d" points="488,510 512,522 500,540 474,528"/>
+      <polygon class="poly" fill="#5c6e2d" points="536,510 512,522 524,540 550,528"/>
+
+      <!-- cheeks and mouth -->
+      <polygon class="poly" fill="#536527" points="434,492 474,528 500,540 466,568 420,536"/>
+      <polygon class="poly" fill="#536527" points="590,492 550,528 524,540 558,568 604,536"/>
+      <polygon class="poly" fill="#445320" points="466,568 512,562 558,568 542,600 512,610 482,600"/>
+      <polygon class="poly" fill="#273017" points="482,600 512,610 542,600 512,588"/>
+      <polygon class="poly" fill="#d7c98f" points="474,560 486,554 494,572 482,580"/>
+      <polygon class="poly" fill="#d7c98f" points="550,560 538,554 530,572 542,580"/>
+    </g>
+
+    <!-- jaw + collar -->
+    <g>
+      <polygon class="poly" fill="#20261b" points="390,596 456,566 482,600 444,658 382,648 356,622"/>
+      <polygon class="poly" fill="#20261b" points="634,596 568,566 542,600 580,658 642,648 668,622"/>
+      <polygon class="goldStroke" fill="#0d1110" points="392,602 456,574 476,600 440,648 388,642 370,624"/>
+      <polygon class="goldStroke" fill="#0d1110" points="632,602 568,574 548,600 584,648 636,642 654,624"/>
+      <polygon class="poly" fill="#2e3920" points="482,600 512,610 542,600 554,676 512,712 470,676"/>
+      <polygon class="poly" fill="#3a281d" points="498,612 526,612 536,700 512,736 488,700"/>
+      <polygon class="poly" fill="#21150f" points="488,700 512,736 536,700 522,692 502,692"/>
+    </g>
+
+    <!-- vpn shield with lock -->
+    <g filter="url(#shadow)">
+      <path d="M512 720 L592 740 L592 820 C592 876 550 918 512 938 C474 918 432 876 432 820 L432 740 Z" fill="#0d1110" stroke="url(#gold)" stroke-width="8"/>
+      <polygon class="poly" fill="#c0a15a" points="512,764 544,764 556,788 556,828 468,828 468,788 480,764"/>
+      <path d="M490 764 C490 736 534 736 534 764" fill="none" stroke="#c0a15a" stroke-width="12" stroke-linecap="round"/>
+      <polygon class="poly" fill="#0f1411" points="508,792 516,792 520,804 512,816 504,804"/>
+    </g>
+  </g>
+</svg>

@@ -1,0 +1,12 @@
+.gradle/
+.android-sdk/
+.external/
+.kotlin/
+.tools/
+.idea/
+build/
+local.properties
+*.iml
+*.hprof
+app/build/
+app/libs/*sources.jar
