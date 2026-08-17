@@ -14,16 +14,23 @@ import android.widget.Toast
 import app.bighead.vpn.R
 import app.bighead.vpn.core.ProfileStore
 import app.bighead.vpn.ui.MainActivity
+import java.util.concurrent.atomic.AtomicInteger
 
 class BigHeadVpnService : VpnService() {
     private val store by lazy { ProfileStore(this) }
     private var engine: LightweightTunnelEngine? = null
     private var worker: Thread? = null
+    private val operation = AtomicInteger()
+    private val engineLock = Any()
     @Volatile private var stopping = false
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> stopVpn(stopSelfAfter = true)
+            ACTION_SWITCH_PROFILE -> {
+                stopVpn(stopSelfAfter = false)
+                startVpn()
+            }
             ACTION_NOTIFICATION_DISMISSED -> restoreNotificationIfNeeded()
             else -> startVpn()
         }
@@ -37,29 +44,45 @@ class BigHeadVpnService : VpnService() {
 
     private fun startVpn() {
         stopping = false
+        val operationId = operation.incrementAndGet()
         val profile = store.activeProfile
         if (profile == null) {
-            Toast.makeText(this, "Добавьте VLESS или Hysteria профиль", Toast.LENGTH_LONG).show()
+            val message = "Добавьте VLESS или Hysteria профиль"
+            store.vpnConnecting = false
+            store.vpnRunning = false
+            store.lastVpnError = message
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
             DebugLog.append(this, "start failed: no active profile")
+            BigHeadVpnTileService.requestTileRefresh(this)
+            broadcastState()
             stopSelf()
             return
         }
         DebugLog.append(this, "start requested: ${profile.protocol.label} ${profile.name}")
+        store.lastVpnError = null
         showForegroundNotification("Подключение", profile.name)
         store.vpnConnecting = true
         store.vpnRunning = false
+        BigHeadVpnTileService.requestTileRefresh(this)
         broadcastState()
 
         worker = Thread {
+            val candidate = LightweightTunnelEngine(this, store.selectedPackages)
             runCatching {
-                LightweightTunnelEngine(this, store.selectedPackages).also {
-                    engine = it
-                    it.start(profile)
+                synchronized(engineLock) {
+                    if (operation.get() != operationId) error("VPN start cancelled")
+                    engine = candidate
                 }
+                candidate.start(profile)
             }.onSuccess {
+                if (operation.get() != operationId || stopping) {
+                    candidate.stop()
+                    return@onSuccess
+                }
                 DebugLog.append(this, "start success")
                 store.vpnConnecting = false
                 store.vpnRunning = true
+                store.lastVpnError = null
                 store.vpnStartedAt = System.currentTimeMillis()
                 Handler(Looper.getMainLooper()).post {
                     showForegroundNotification("VPN включён", profile.name)
@@ -67,9 +90,15 @@ class BigHeadVpnService : VpnService() {
                     broadcastState()
                 }
             }.onFailure { error ->
+                runCatching { candidate.stop() }
+                synchronized(engineLock) {
+                    if (engine === candidate) engine = null
+                }
+                if (operation.get() != operationId) return@onFailure
                 DebugLog.append(this, "start failed", error)
                 store.vpnConnecting = false
                 store.vpnRunning = false
+                store.lastVpnError = error.message ?: "VPN engine is not ready"
                 store.vpnStartedAt = 0L
                 Handler(Looper.getMainLooper()).post {
                     Toast.makeText(this, error.message ?: "VPN engine is not ready", Toast.LENGTH_LONG).show()
@@ -88,11 +117,15 @@ class BigHeadVpnService : VpnService() {
             return
         }
         stopping = true
+        operation.incrementAndGet()
         DebugLog.append(this, "stop requested")
-        runCatching { engine?.stop() }
+        worker?.interrupt()
+        val engineToStop = synchronized(engineLock) {
+            engine.also { engine = null }
+        }
+        runCatching { engineToStop?.stop() }
             .onSuccess { DebugLog.append(this, "engine stopped") }
             .onFailure { DebugLog.append(this, "engine stop failed", it) }
-        engine = null
         worker = null
         store.vpnConnecting = false
         store.vpnRunning = false
@@ -197,6 +230,7 @@ class BigHeadVpnService : VpnService() {
     companion object {
         const val ACTION_STOP = "app.bighead.vpn.STOP"
         const val ACTION_START = "app.bighead.vpn.START"
+        const val ACTION_SWITCH_PROFILE = "app.bighead.vpn.SWITCH_PROFILE"
         private const val ACTION_NOTIFICATION_DISMISSED = "app.bighead.vpn.NOTIFICATION_DISMISSED"
         const val ACTION_STATE_CHANGED = "app.bighead.vpn.STATE_CHANGED"
         private const val CHANNEL_ID = "vpn_status"

@@ -11,6 +11,7 @@ import android.content.IntentFilter
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.net.Uri
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
@@ -26,30 +27,45 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
+import android.widget.ImageButton
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import app.bighead.vpn.R
 import app.bighead.vpn.core.InstalledApp
 import app.bighead.vpn.core.InstalledAppRepository
 import app.bighead.vpn.core.ProfileStore
+import app.bighead.vpn.core.SubscriptionGroup
+import app.bighead.vpn.core.VpnProfile
 import app.bighead.vpn.vpn.BigHeadVpnService
 import app.bighead.vpn.vpn.DebugLog
 import app.bighead.vpn.vpn.ProfileLatencyChecker
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.UUID
 
 class MainActivity : Activity() {
     private lateinit var store: ProfileStore
     private lateinit var statusText: TextView
     private lateinit var profileText: TextView
+    private lateinit var errorText: TextView
     private lateinit var uptimeText: TextView
     private lateinit var appsText: TextView
     private lateinit var connectButton: Button
     private lateinit var serversContainer: LinearLayout
+    private lateinit var serversFrame: FrameLayout
     private lateinit var selectedAppsContainer: LinearLayout
+    private lateinit var selectedAppsScroll: ScrollView
     private lateinit var rootView: LinearLayout
+    private lateinit var contentRoot: FrameLayout
+    private lateinit var pingSpinner: ProgressBar
     private var appSelectorOverlay: View? = null
+    private var snackbarView: View? = null
+    private var snackbarDismiss: Runnable? = null
     private var checkingPing = false
     private val uiHandler = Handler(Looper.getMainLooper())
     private val uptimeTicker = object : Runnable {
@@ -108,33 +124,39 @@ class MainActivity : Activity() {
     }
 
     private fun buildContent(): View {
+        val screen = FrameLayout(this).apply { setBackgroundColor(COLOR_CANVAS) }
+        contentRoot = screen
         val scroll = ScrollView(this).apply {
             setBackgroundColor(COLOR_CANVAS)
             isFillViewport = true
         }
+        screen.addView(scroll, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT,
+        ))
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(22), dp(30), dp(22), dp(22))
+            setPadding(dp(14), dp(16), dp(14), dp(14))
         }
         rootView = root
         scroll.addView(root, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
 
         root.addView(TextView(this).apply {
             text = "Big Head VPN"
-            textSize = 34f
+            textSize = 28f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(COLOR_INK)
             includeFontPadding = false
         })
 
         root.addView(TextView(this).apply {
-            text = "Серверы, приложения и быстрый импорт в одном экране"
-            textSize = 16f
+            text = "VPN"
+            textSize = 13f
             setTextColor(COLOR_MUTED)
             gravity = Gravity.CENTER
-            setPadding(0, dp(10), 0, dp(24))
+            setPadding(0, dp(4), 0, dp(12))
         })
 
         val statusPanel = panel()
@@ -144,6 +166,22 @@ class MainActivity : Activity() {
         profileText = label("", 15f, COLOR_MUTED)
         profileText.setPadding(0, dp(8), 0, 0)
         statusPanel.addView(profileText)
+        errorText = label("", 13f, COLOR_DANGER, bold = true).apply {
+            visibility = View.GONE
+            maxLines = 4
+            ellipsize = TextUtils.TruncateAt.END
+            setPadding(0, dp(7), 0, 0)
+            setOnClickListener {
+                store.lastVpnError?.let { error ->
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Ошибка VPN")
+                        .setMessage(error)
+                        .setPositiveButton("Закрыть", null)
+                        .show()
+                }
+            }
+        }
+        statusPanel.addView(errorText)
         uptimeText = label("", 15f, COLOR_MUTED)
         uptimeText.setPadding(0, dp(6), 0, 0)
         statusPanel.addView(uptimeText)
@@ -156,8 +194,12 @@ class MainActivity : Activity() {
         root.addView(serversPanel)
         serversPanel.addView(sectionHeader(
             "Серверы",
-            iconButton("↻").apply { setOnClickListener { checkAllPings() } },
-            iconButton("↑").apply { setOnClickListener { sortServersByPing() } },
+            iconActionButton(R.drawable.ic_latency, "Проверить задержку").apply {
+                setOnClickListener { checkAllPings() }
+            },
+            iconActionButton(R.drawable.ic_sort_latency, "Сортировать по задержке").apply {
+                setOnClickListener { sortServersByPing() }
+            },
         ))
         val serversScroll = ScrollView(this).apply {
             isFillViewport = false
@@ -176,10 +218,25 @@ class MainActivity : Activity() {
             }
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(330),
-            ).apply { bottomMargin = dp(10) }
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            )
         }
-        serversPanel.addView(serversScroll)
+        serversFrame = FrameLayout(this).apply {
+            addView(serversScroll, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            ))
+            pingSpinner = ProgressBar(this@MainActivity).apply {
+                isIndeterminate = true
+                visibility = View.GONE
+            }
+            addView(pingSpinner, FrameLayout.LayoutParams(dp(48), dp(48), Gravity.CENTER))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(300),
+            ).apply { bottomMargin = dp(8) }
+        }
+        serversPanel.addView(serversFrame)
         serversPanel.addView(actionRow(
             secondaryButton("Вставить из буфера").apply { setOnClickListener { pasteProfiles() } },
             secondaryButton("Ввести вручную").apply { setOnClickListener { showProfileDialog() } },
@@ -194,7 +251,22 @@ class MainActivity : Activity() {
         selectedAppsContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
-        appsPanel.addView(selectedAppsContainer)
+        selectedAppsScroll = ScrollView(this).apply {
+            isNestedScrollingEnabled = true
+            overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+            addView(selectedAppsContainer)
+            setOnTouchListener { view, event ->
+                view.parent?.requestDisallowInterceptTouchEvent(
+                    event.action != MotionEvent.ACTION_UP && event.action != MotionEvent.ACTION_CANCEL,
+                )
+                false
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                0,
+            )
+        }
+        appsPanel.addView(selectedAppsScroll)
         appsPanel.addView(secondaryButton("Выбрать приложения").apply {
             setOnClickListener { showAppsDialog() }
         })
@@ -212,7 +284,7 @@ class MainActivity : Activity() {
         })
 
         renderState()
-        return scroll
+        return screen
     }
 
     private fun requestNotificationPermissionIfNeeded() {
@@ -243,6 +315,8 @@ class MainActivity : Activity() {
         } else {
             "${profile.name} · ${profile.protocol.label}"
         }
+        errorText.text = store.lastVpnError?.let { "Ошибка: $it" }.orEmpty()
+        errorText.visibility = if (store.lastVpnError == null) View.GONE else View.VISIBLE
 
         renderServers()
         renderSelectedApps()
@@ -280,61 +354,274 @@ class MainActivity : Activity() {
     private fun renderServers() {
         serversContainer.removeAllViews()
         val profiles = store.profiles
-        val activeId = store.activeProfile?.id
-        val latencies = store.profileLatencies
+        pingSpinner.visibility = if (checkingPing) View.VISIBLE else View.GONE
 
         if (profiles.isEmpty()) {
+            serversFrame.layoutParams.height = dp(64)
+            serversFrame.requestLayout()
             serversContainer.addView(emptyText("Список серверов пуст"))
             return
         }
 
-        profiles.forEach { profile ->
-            val active = profile.id == activeId
+        val groups = store.subscriptionGroups
+        val collapsedIds = store.collapsedSubscriptionIds
+        val visibleGroups = groups.filter { group -> profiles.any { it.subscriptionId == group.id } }
+        val standalone = profiles.filter { it.subscriptionId == null || groups.none { group -> group.id == it.subscriptionId } }
+        val rowCount = (visibleGroups.sumOf { group ->
+            if (group.id in collapsedIds) 0 else {
+                profiles.filter { it.subscriptionId == group.id }
+                    .distinctBy { compactServerName(it.name).lowercase() }
+                    .size
+            }
+        } + standalone.distinctBy { compactServerName(it.name).lowercase() }.size)
+        val headerCount = visibleGroups.size + if (standalone.isNotEmpty() && groups.isNotEmpty()) 1 else 0
+        serversFrame.layoutParams.height = dp((rowCount * 72 + headerCount * 52).coerceIn(72, 300))
+        serversFrame.requestLayout()
+
+        groups.forEach { group ->
+            val groupProfiles = profiles.filter { it.subscriptionId == group.id }
+            if (groupProfiles.isNotEmpty()) {
+                val collapsed = group.id in collapsedIds
+                serversContainer.addView(subscriptionHeader(group, groupProfiles.size, collapsed))
+                if (!collapsed) renderServerRows(groupProfiles)
+            }
+        }
+
+        if (standalone.isNotEmpty()) {
+            if (groups.isNotEmpty()) serversContainer.addView(groupLabel("Добавленные вручную", standalone.size))
+            renderServerRows(standalone)
+        }
+    }
+
+    private fun renderServerRows(profiles: List<VpnProfile>) {
+        profiles.groupBy { compactServerName(it.name).lowercase() }.values.forEach { variants ->
+            val activeId = store.activeProfile?.id
+            val active = variants.any { it.id == activeId }
             val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(12), dp(10), dp(10), dp(10))
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(10), dp(7), dp(8), dp(7))
                 background = rounded(if (active) COLOR_SIGNAL_SOFT else COLOR_SURFACE, dp(8), COLOR_LINE)
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT,
-                ).apply { bottomMargin = dp(8) }
-                setOnClickListener {
-                    store.setActiveProfile(profile.id)
-                    renderState()
-                }
+                ).apply { bottomMargin = dp(5) }
             }
 
-            row.addView(TextView(this).apply {
-                text = if (active) "●" else "○"
-                textSize = 18f
-                setTextColor(if (active) COLOR_INK else COLOR_MUTED)
-                gravity = Gravity.CENTER
-            }, LinearLayout.LayoutParams(dp(28), ViewGroup.LayoutParams.WRAP_CONTENT))
-
-            row.addView(LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                addView(label(profile.name, 16f, COLOR_INK, bold = true).apply {
-                    maxLines = 2
-                    ellipsize = TextUtils.TruncateAt.END
-                })
-                addView(label(profile.protocol.label, 13f, COLOR_MUTED))
-                addView(label(if (checkingPing) "Проверяю..." else "Пинг: ${store.latencyLabel(profile.id)}", 12f, COLOR_MUTED))
+            val titleRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            titleRow.addView(label(compactServerName(variants.first().name), 14f, COLOR_INK, bold = true).apply {
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-
-            row.addView(label(latencies[profile.id]?.let { "${it}ms" } ?: "—", 13f, COLOR_MUTED, bold = true).apply {
-                gravity = Gravity.CENTER
-            }, LinearLayout.LayoutParams(dp(58), ViewGroup.LayoutParams.WRAP_CONTENT).apply { rightMargin = dp(8) })
-
-            row.addView(deleteIconButton().apply {
-                setOnClickListener {
-                    store.removeProfile(profile.id)
-                    renderState()
-                }
+            titleRow.addView(deleteIconButton().apply {
+                contentDescription = "Удалить сервер"
+                setOnClickListener { removeServerRow(variants) }
             })
+            row.addView(titleRow)
 
+            val chips = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            variants.forEach { profile ->
+                val selected = profile.id == activeId
+                chips.addView(protocolChip(profile, selected))
+            }
+            row.addView(HorizontalScrollView(this).apply {
+                isHorizontalScrollBarEnabled = false
+                addView(chips)
+            })
             serversContainer.addView(row)
         }
+    }
+
+    private fun compactServerName(name: String): String {
+        val compact = name
+            .replace(
+                Regex("""(?i)\s+[0-9a-f]{8,32}\s+(?:h2|grpc|xtls|xhttp(?:-cdn)?|httpupgrade|ws|tcp)\s*$"""),
+                " ",
+            )
+            .replace(Regex("""(?i)\s+(?:h2|grpc|xtls|xhttp(?:-cdn)?|httpupgrade|ws|tcp)\s*$"""), " ")
+            .replace(Regex("""(?i)\b(?:vless|hysteria2?|hy2)\b"""), " ")
+            .replace(Regex("""\(\s*\)"""), " ")
+            .replace(Regex("""\s+"""), " ")
+            .trim(' ', '|', '/', '·', '—', '-', '_')
+        return compact.ifBlank { name }
+    }
+
+    private fun protocolChip(profile: VpnProfile, active: Boolean): Button {
+        val ping = store.profileLatencies[profile.id]?.let { "$it ms" } ?: "—"
+        return Button(this).apply {
+            text = "${if (active) "● " else ""}${profileVariantLabel(profile)} · $ping"
+            textSize = 12f
+            isAllCaps = false
+            minHeight = 0
+            minWidth = 0
+            setPadding(dp(10), 0, dp(10), 0)
+            setTextColor(COLOR_INK)
+            background = rounded(if (active) COLOR_SIGNAL else Color.WHITE, dp(7), COLOR_LINE)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34)).apply {
+                rightMargin = dp(6)
+                topMargin = dp(5)
+            }
+            setOnClickListener { selectProfile(profile) }
+        }
+    }
+
+    private fun profileVariantLabel(profile: VpnProfile): String {
+        if (profile.protocol == app.bighead.vpn.core.Protocol.HYSTERIA) return "Hysteria H2"
+        val uri = runCatching { Uri.parse(profile.uri.substringBefore('#')) }.getOrNull()
+        val transport = uri?.getQueryParameter("type").orEmpty().ifBlank { "tcp" }.lowercase()
+        val flow = uri?.getQueryParameter("flow").orEmpty().lowercase()
+        return when {
+            "vision" in flow -> "VLESS XTLS"
+            transport == "grpc" -> "VLESS gRPC"
+            transport == "xhttp" || transport == "splithttp" -> "VLESS XHTTP"
+            transport == "httpupgrade" -> "VLESS HTTPUpgrade"
+            transport == "ws" -> "VLESS WS"
+            else -> "VLESS ${transport.uppercase()}"
+        }
+    }
+
+    private fun selectProfile(profile: VpnProfile) {
+        if (store.activeProfile?.id == profile.id) return
+        store.setActiveProfile(profile.id)
+        if (store.vpnRunning || store.vpnConnecting) {
+            store.vpnConnecting = true
+            store.vpnRunning = false
+            startService(
+                Intent(this, BigHeadVpnService::class.java)
+                    .setAction(BigHeadVpnService.ACTION_SWITCH_PROFILE),
+            )
+        }
+        renderState()
+    }
+
+    private fun subscriptionHeader(group: SubscriptionGroup, count: Int, collapsed: Boolean): View {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(6), 0, dp(5))
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(iconActionButton(
+                    if (collapsed) R.drawable.ic_chevron_right else R.drawable.ic_expand_more,
+                    if (collapsed) "Развернуть группу" else "Свернуть группу",
+                ).apply {
+                    setOnClickListener { toggleSubscriptionGroup(group.id) }
+                }, LinearLayout.LayoutParams(dp(34), dp(34)).apply { rightMargin = dp(3) })
+                addView(groupLabel(group.name, count).apply {
+                    setPadding(0, dp(7), 0, dp(7))
+                    setOnClickListener { toggleSubscriptionGroup(group.id) }
+                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                addView(compactActionButton("Обновить").apply {
+                    setOnClickListener { refreshSubscription(group) }
+                })
+                addView(compactDangerButton("Удалить").apply {
+                    setOnClickListener { confirmDeleteSubscription(group) }
+                })
+            })
+            if (!collapsed) {
+                addView(label(group.url, 11f, COLOR_MUTED).apply {
+                    maxLines = 1
+                    ellipsize = TextUtils.TruncateAt.MIDDLE
+                })
+            }
+        }
+    }
+
+    private fun toggleSubscriptionGroup(groupId: String) {
+        store.toggleSubscriptionCollapsed(groupId)
+        renderServers()
+    }
+
+    private fun groupLabel(name: String, count: Int): TextView =
+        label("$name · $count", 13f, COLOR_MUTED, bold = true)
+
+    private fun removeServerRow(variants: List<VpnProfile>) {
+        val allProfiles = store.profiles
+        val removedIds = variants.map { it.id }.toSet()
+        val firstIndex = allProfiles.indexOfFirst { it.id in removedIds }.coerceAtLeast(0)
+        val oldActive = store.activeProfile
+        val vpnWasActive = store.vpnRunning || store.vpnConnecting
+        store.removeProfiles(removedIds)
+        reconcileVpnAfterRemoval(oldActive?.id in removedIds)
+        renderState()
+        showUndoMessage(
+            if (variants.size == 1) "Сервер удалён" else "Сервер и ${variants.size} протокола удалены",
+        ) {
+            store.restoreProfiles(variants, firstIndex)
+            if (!vpnWasActive) oldActive?.takeIf { it.id in removedIds }?.let { store.activeProfile = it }
+            renderState()
+        }
+    }
+
+    private fun confirmDeleteSubscription(group: SubscriptionGroup) {
+        val count = store.profiles.count { it.subscriptionId == group.id }
+        AlertDialog.Builder(this)
+            .setTitle("Удалить группу «${group.name}»?")
+            .setMessage("Будут удалены все профили группы: $count. Это действие нельзя отменить.")
+            .setNegativeButton("Отмена", null)
+            .setPositiveButton("Удалить") { _, _ ->
+                val activeRemoved = store.activeProfile?.subscriptionId == group.id
+                store.removeSubscription(group.id)
+                reconcileVpnAfterRemoval(activeRemoved)
+                renderState()
+            }
+            .show()
+    }
+
+    private fun reconcileVpnAfterRemoval(activeRemoved: Boolean) {
+        if (!activeRemoved || (!store.vpnRunning && !store.vpnConnecting)) return
+        val action = if (store.activeProfile == null) {
+            BigHeadVpnService.ACTION_STOP
+        } else {
+            store.vpnConnecting = true
+            store.vpnRunning = false
+            BigHeadVpnService.ACTION_SWITCH_PROFILE
+        }
+        startService(Intent(this, BigHeadVpnService::class.java).setAction(action))
+    }
+
+    private fun showUndoMessage(message: String, undo: () -> Unit) {
+        snackbarDismiss?.let(uiHandler::removeCallbacks)
+        snackbarView?.let(contentRoot::removeView)
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(6), dp(6), dp(6))
+            background = rounded(COLOR_INK, dp(9), COLOR_INK)
+            elevation = dp(8).toFloat()
+            addView(label(message, 14f, Color.WHITE), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(compactActionButton("Отменить").apply {
+                setTextColor(COLOR_SIGNAL)
+                background = rounded(Color.TRANSPARENT, dp(7), Color.TRANSPARENT)
+                setOnClickListener {
+                    undo()
+                    snackbarDismiss?.let(uiHandler::removeCallbacks)
+                    snackbarView?.let(contentRoot::removeView)
+                    snackbarView = null
+                }
+            })
+        }
+        snackbarView = bar
+        contentRoot.addView(bar, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            dp(52),
+            Gravity.BOTTOM,
+        ).apply {
+            leftMargin = dp(14)
+            rightMargin = dp(14)
+            bottomMargin = dp(14)
+        })
+        val dismiss = Runnable {
+            contentRoot.removeView(bar)
+            if (snackbarView === bar) snackbarView = null
+        }
+        snackbarDismiss = dismiss
+        uiHandler.postDelayed(dismiss, 5000L)
     }
 
     private fun checkAllPings() {
@@ -347,7 +634,6 @@ class MainActivity : Activity() {
 
         checkingPing = true
         renderServers()
-        Toast.makeText(this, "Проверяю пинг", Toast.LENGTH_SHORT).show()
 
         Thread {
             val checker = ProfileLatencyChecker(this)
@@ -359,7 +645,7 @@ class MainActivity : Activity() {
             runOnUiThread {
                 checkingPing = false
                 sortServersByPing(showToast = false)
-                Toast.makeText(this, "Пинг проверен", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Проверка завершена", Toast.LENGTH_SHORT).show()
             }
         }.start()
     }
@@ -389,17 +675,24 @@ class MainActivity : Activity() {
             else -> "VPN будет работать для приложений: ${selected.size}"
         }
 
-        if (selected.isEmpty()) return
+        if (selected.isEmpty()) {
+            selectedAppsScroll.layoutParams.height = 0
+            selectedAppsScroll.requestLayout()
+            return
+        }
 
         val appNames = InstalledAppRepository(this).launcherApps()
             .filter { it.packageName in selected }
-            .take(4)
+
+        selectedAppsScroll.layoutParams.height = dp((appNames.size * 58).coerceIn(58, 230))
+        selectedAppsScroll.requestLayout()
 
         appNames.forEach { app ->
             selectedAppsContainer.addView(compactAppRow(app.label, app.packageName))
         }
-        if (selected.size > appNames.size) {
-            selectedAppsContainer.addView(emptyText("И ещё: ${selected.size - appNames.size}"))
+        val unavailableCount = selected.size - appNames.size
+        if (unavailableCount > 0) {
+            selectedAppsContainer.addView(emptyText("Недоступных приложений: $unavailableCount"))
         }
     }
 
@@ -465,19 +758,31 @@ class MainActivity : Activity() {
         renderState()
     }
 
-    private fun importSubscription(link: String) {
-        Toast.makeText(this, "Загружаю подписку", Toast.LENGTH_SHORT).show()
+    private fun importSubscription(link: String, existingGroup: SubscriptionGroup? = store.subscriptionByUrl(link)) {
+        Toast.makeText(this, if (existingGroup == null) "Добавляю подписку" else "Обновляю подписку", Toast.LENGTH_SHORT).show()
         Thread {
             val result = runCatching { fetchSubscription(link) }
             runOnUiThread {
                 result.onSuccess { body ->
                     val imported = store.importFromText(body)
-                    val added = store.addProfiles(imported)
-                    val message = when {
-                        imported.isEmpty() -> "В подписке нет VLESS или Hysteria профилей"
-                        added == 0 -> "Серверы из подписки уже добавлены"
-                        added == 1 -> "Добавлен 1 сервер из подписки"
-                        else -> "Добавлено серверов из подписки: $added"
+                    if (imported.isEmpty()) {
+                        Toast.makeText(this, "В подписке нет VLESS или Hysteria профилей", Toast.LENGTH_LONG).show()
+                        return@onSuccess
+                    }
+                    val oldActive = store.activeProfile
+                    val group = (existingGroup ?: SubscriptionGroup(
+                        id = UUID.randomUUID().toString(),
+                        name = runCatching { URL(link).host.removePrefix("www.") }.getOrNull().orEmpty().ifBlank { "Подписка" },
+                        url = link,
+                        updatedAt = 0L,
+                    )).copy(updatedAt = System.currentTimeMillis())
+                    store.saveSubscription(group, imported)
+                    val activeRemoved = oldActive?.subscriptionId == group.id && store.profiles.none { it.id == oldActive.id }
+                    reconcileVpnAfterRemoval(activeRemoved)
+                    val message = if (existingGroup == null) {
+                        "Подписка добавлена · профилей: ${imported.size}"
+                    } else {
+                        "Подписка обновлена · профилей: ${imported.size}"
                     }
                     Toast.makeText(this, message, Toast.LENGTH_LONG).show()
                     renderState()
@@ -486,6 +791,10 @@ class MainActivity : Activity() {
                 }
             }
         }.start()
+    }
+
+    private fun refreshSubscription(group: SubscriptionGroup) {
+        importSubscription(group.url, group)
     }
 
     private fun fetchSubscription(link: String): String {
@@ -759,20 +1068,20 @@ class MainActivity : Activity() {
     private fun panel(): LinearLayout {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(18), dp(18), dp(18))
+            setPadding(dp(12), dp(11), dp(12), dp(11))
             background = rounded(Color.WHITE, dp(8), COLOR_LINE)
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { bottomMargin = dp(16) }
+            ).apply { bottomMargin = dp(10) }
         }
     }
 
     private fun actionRow(left: View, right: View): LinearLayout {
         return LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            addView(left, LinearLayout.LayoutParams(0, dp(58), 1f).apply { rightMargin = dp(6) })
-            addView(right, LinearLayout.LayoutParams(0, dp(58), 1f).apply { leftMargin = dp(6) })
+            addView(left, LinearLayout.LayoutParams(0, dp(48), 1f).apply { rightMargin = dp(4) })
+            addView(right, LinearLayout.LayoutParams(0, dp(48), 1f).apply { leftMargin = dp(4) })
         }
     }
 
@@ -782,8 +1091,8 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
             addView(sectionTitle(title), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             actions.forEachIndexed { index, action ->
-                addView(action, LinearLayout.LayoutParams(dp(42), dp(42)).apply {
-                    if (index > 0) leftMargin = dp(8)
+                addView(action, LinearLayout.LayoutParams(dp(40), dp(36)).apply {
+                    if (index > 0) leftMargin = dp(5)
                 })
             }
         }
@@ -806,23 +1115,41 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun iconButton(textValue: String): Button {
+    private fun compactActionButton(textValue: String): Button {
         return button(textValue, COLOR_INK, COLOR_SURFACE).apply {
-            textSize = 22f
-            minWidth = dp(42)
-            minHeight = dp(42)
-            setPadding(0, 0, 0, dp(2))
-            layoutParams = LinearLayout.LayoutParams(dp(42), dp(42))
+            textSize = 11f
+            minWidth = 0
+            minHeight = 0
+            setPadding(dp(7), 0, dp(7), 0)
+            layoutParams = LinearLayout.LayoutParams(dp(76), dp(34)).apply { leftMargin = dp(5) }
+        }
+    }
+
+    private fun iconActionButton(drawableRes: Int, description: String): ImageButton {
+        return ImageButton(this).apply {
+            setImageResource(drawableRes)
+            contentDescription = description
+            tooltipText = description
+            scaleType = android.widget.ImageView.ScaleType.CENTER
+            setPadding(dp(7), dp(7), dp(7), dp(7))
+            background = rounded(COLOR_SURFACE, dp(8), COLOR_LINE)
+            layoutParams = LinearLayout.LayoutParams(dp(40), dp(36))
+        }
+    }
+
+    private fun compactDangerButton(textValue: String): Button {
+        return compactActionButton(textValue).apply {
+            setTextColor(COLOR_DANGER)
         }
     }
 
     private fun deleteIconButton(): Button {
         return button("×", Color.WHITE, COLOR_DANGER).apply {
-            textSize = 24f
-            minWidth = dp(42)
-            minHeight = dp(42)
-            setPadding(0, 0, 0, dp(3))
-            layoutParams = LinearLayout.LayoutParams(dp(42), dp(42))
+            textSize = 18f
+            minWidth = 0
+            minHeight = 0
+            setPadding(0, 0, 0, dp(2))
+            layoutParams = LinearLayout.LayoutParams(dp(30), dp(30))
         }
     }
 
@@ -830,19 +1157,20 @@ class MainActivity : Activity() {
         return Button(this).apply {
             text = textValue
             textSize = 16f
+            isAllCaps = false
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(textColor)
-            minHeight = dp(54)
+            minHeight = dp(46)
             background = rounded(fillColor, dp(8), COLOR_LINE)
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(58),
-            ).apply { bottomMargin = dp(12) }
+                dp(48),
+            ).apply { bottomMargin = dp(8) }
         }
     }
 
     private fun sectionTitle(textValue: String): TextView {
-        return label(textValue, 20f, COLOR_INK, bold = true)
+        return label(textValue, 18f, COLOR_INK, bold = true)
     }
 
     private fun emptyText(textValue: String): TextView {

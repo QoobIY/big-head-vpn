@@ -40,6 +40,7 @@ class ProfileStore(context: Context) {
                             name = item.optString("name").ifBlank { protocol.defaultName(uri) },
                             uri = uri,
                             protocol = protocol,
+                            subscriptionId = item.optString("subscriptionId").takeIf { it.isNotBlank() },
                         )
                     )
                 }
@@ -53,6 +54,7 @@ class ProfileStore(context: Context) {
                         .put("id", profile.id)
                         .put("name", profile.name)
                         .put("uri", profile.uri)
+                        .apply { profile.subscriptionId?.let { put("subscriptionId", it) } }
                 )
             }
 
@@ -80,6 +82,92 @@ class ProfileStore(context: Context) {
 
     fun removeProfile(profileId: String) {
         profiles = profiles.filterNot { it.id == profileId }
+    }
+
+    fun removeProfiles(profileIds: Set<String>) {
+        profiles = profiles.filterNot { it.id in profileIds }
+    }
+
+    fun restoreProfiles(removed: List<VpnProfile>, index: Int) {
+        if (removed.isEmpty()) return
+        val current = profiles.filterNot { profile -> removed.any { it.id == profile.id } }.toMutableList()
+        current.addAll(index.coerceIn(0, current.size), removed)
+        profiles = current
+    }
+
+    var subscriptionGroups: List<SubscriptionGroup>
+        get() {
+            val stored = prefs.getString(KEY_SUBSCRIPTIONS, "[]").orEmpty().ifBlank { "[]" }
+            val array = runCatching { JSONArray(stored) }.getOrNull()
+                ?: return emptyList()
+            return buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    val id = item.optString("id")
+                    val url = item.optString("url")
+                    if (id.isBlank() || url.isBlank()) continue
+                    add(
+                        SubscriptionGroup(
+                            id = id,
+                            name = item.optString("name").ifBlank { "Подписка" },
+                            url = url,
+                            updatedAt = item.optLong("updatedAt"),
+                        ),
+                    )
+                }
+            }
+        }
+        set(value) {
+            val array = JSONArray()
+            value.forEach { group ->
+                array.put(
+                    JSONObject()
+                        .put("id", group.id)
+                        .put("name", group.name)
+                        .put("url", group.url)
+                        .put("updatedAt", group.updatedAt),
+                )
+            }
+            prefs.edit().putString(KEY_SUBSCRIPTIONS, array.toString()).apply()
+        }
+
+    fun subscriptionByUrl(url: String): SubscriptionGroup? =
+        subscriptionGroups.firstOrNull { it.url == url }
+
+    fun saveSubscription(group: SubscriptionGroup, imported: List<VpnProfile>) {
+        val tagged = imported.map { it.copy(subscriptionId = group.id) }
+        val importedUris = tagged.map { it.uri }.toSet()
+        val currentProfiles = profiles
+        val insertAt = currentProfiles.indexOfFirst { it.subscriptionId == group.id || it.uri in importedUris }
+            .takeIf { it >= 0 } ?: currentProfiles.size
+        val updatedProfiles = currentProfiles.filterNot { it.subscriptionId == group.id || it.uri in importedUris }.toMutableList()
+        updatedProfiles.addAll(insertAt.coerceAtMost(updatedProfiles.size), tagged)
+        profiles = updatedProfiles
+
+        val currentGroups = subscriptionGroups
+        subscriptionGroups = if (currentGroups.any { it.id == group.id }) {
+            currentGroups.map { if (it.id == group.id) group else it }
+        } else {
+            currentGroups + group
+        }
+    }
+
+    fun removeSubscription(groupId: String) {
+        profiles = profiles.filterNot { it.subscriptionId == groupId }
+        subscriptionGroups = subscriptionGroups.filterNot { it.id == groupId }
+        collapsedSubscriptionIds = collapsedSubscriptionIds - groupId
+    }
+
+    var collapsedSubscriptionIds: Set<String>
+        get() = prefs.getStringSet(KEY_COLLAPSED_SUBSCRIPTIONS, emptySet()).orEmpty()
+        set(value) {
+            prefs.edit().putStringSet(KEY_COLLAPSED_SUBSCRIPTIONS, value).apply()
+        }
+
+    fun toggleSubscriptionCollapsed(groupId: String) {
+        collapsedSubscriptionIds = collapsedSubscriptionIds.toMutableSet().apply {
+            if (!add(groupId)) remove(groupId)
+        }
     }
 
     private fun legacyProfile(): VpnProfile? {
@@ -158,6 +246,14 @@ class ProfileStore(context: Context) {
             prefs.edit().putLong(KEY_STARTED_AT, value).apply()
         }
 
+    var lastVpnError: String?
+        get() = prefs.getString(KEY_LAST_VPN_ERROR, null)?.takeIf { it.isNotBlank() }
+        set(value) {
+            prefs.edit().apply {
+                if (value.isNullOrBlank()) remove(KEY_LAST_VPN_ERROR) else putString(KEY_LAST_VPN_ERROR, value)
+            }.apply()
+        }
+
     var profileLatencies: Map<String, Long>
         get() {
             val stored = prefs.getString(KEY_PROFILE_LATENCIES, null) ?: return emptyMap()
@@ -195,7 +291,10 @@ class ProfileStore(context: Context) {
         private const val KEY_RUNNING = "running"
         private const val KEY_CONNECTING = "connecting"
         private const val KEY_STARTED_AT = "started_at"
+        private const val KEY_LAST_VPN_ERROR = "last_vpn_error"
         private const val KEY_PROFILE_LATENCIES = "profile_latencies"
+        private const val KEY_SUBSCRIPTIONS = "subscriptions"
+        private const val KEY_COLLAPSED_SUBSCRIPTIONS = "collapsed_subscriptions"
         private val PROFILE_URI_REGEX = Regex("""(?i)\b(?:vless|hysteria2|hysteria|hy2)://[^\s"'<>]+""")
     }
 }

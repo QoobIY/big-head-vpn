@@ -5,4 +5,5 @@ data class VpnProfile(
     val name: String,
     val uri: String,
     val protocol: Protocol,
+    val subscriptionId: String? = null,
 )

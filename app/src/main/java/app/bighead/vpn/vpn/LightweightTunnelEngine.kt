@@ -16,6 +16,7 @@ class LightweightTunnelEngine(
     private var xrayClient: XrayClient? = null
     private var hysteria2Client: Hysteria2Client? = null
     private var configFile: File? = null
+    @Volatile private var hevStarted = false
 
     fun start(profile: VpnProfile) {
         if (VpnService.prepare(service) != null) error("Нет разрешения Android VPN")
@@ -49,12 +50,16 @@ class LightweightTunnelEngine(
         configFile = config
         DebugLog.append(service, "starting hev tunnel on socks port $socksPort")
         HevSocks5Tunnel.TProxyStartService(config.absolutePath, pfd.fd)
+        hevStarted = true
     }
 
     fun stop() {
         DebugLog.append(service, "engine stop begin")
-        runCatching { HevSocks5Tunnel.TProxyStopService() }
-            .onFailure { DebugLog.append(service, "hev stop failed", it) }
+        if (hevStarted) {
+            hevStarted = false
+            runCatching { HevSocks5Tunnel.TProxyStopService() }
+                .onFailure { DebugLog.append(service, "hev stop failed", it) }
+        }
         runCatching { tun?.close() }
             .onFailure { DebugLog.append(service, "tun close failed", it) }
         tun = null

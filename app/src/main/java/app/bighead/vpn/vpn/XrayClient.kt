@@ -243,7 +243,7 @@ class XrayClient(
 
     private fun verifyOutbound(proc: Process, port: Int) {
         runCatching {
-            socksConnect(port, "connectivitycheck.gstatic.com", 80)
+            socksHttpCheck(port, "connectivitycheck.gstatic.com", 80, "/generate_204")
         }.onSuccess {
             DebugLog.append(context, "xray outbound check success")
         }.onFailure {
@@ -257,7 +257,7 @@ class XrayClient(
         }
     }
 
-    private fun socksConnect(port: Int, host: String, targetPort: Int) {
+    private fun socksHttpCheck(port: Int, host: String, targetPort: Int, path: String) {
         Socket().use { socket ->
             socket.connect(InetSocketAddress("127.0.0.1", port), 2000)
             socket.soTimeout = 8000
@@ -290,6 +290,16 @@ class XrayClient(
             }
             if (addressLength < 0) error("SOCKS response is truncated")
             input.readExact(addressLength + 2)
+
+            output.write(
+                "GET $path HTTP/1.1\r\nHost: $host\r\nConnection: close\r\nUser-Agent: BigHeadVPN/0.1\r\n\r\n"
+                    .toByteArray(Charsets.US_ASCII),
+            )
+            output.flush()
+            val statusLine = input.bufferedReader(Charsets.US_ASCII).readLine().orEmpty()
+            if (!HTTP_STATUS_REGEX.matches(statusLine)) {
+                error("VLESS HTTP check failed: ${statusLine.ifBlank { "empty response" }}")
+            }
         }
     }
 
@@ -338,6 +348,8 @@ class XrayClient(
     }
 
     companion object {
+        private val HTTP_STATUS_REGEX = Regex("""HTTP/1\.[01] [1-5][0-9]{2}(?: .*)?""")
+
         fun isAvailable(context: Context): Boolean {
             return File(context.applicationInfo.nativeLibraryDir, "libxray.so").exists()
         }

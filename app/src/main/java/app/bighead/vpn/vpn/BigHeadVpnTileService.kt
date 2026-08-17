@@ -7,6 +7,8 @@ import android.content.Intent
 import android.graphics.drawable.Icon
 import android.net.VpnService
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import app.bighead.vpn.R
@@ -16,6 +18,16 @@ import app.bighead.vpn.ui.MainActivity
 class BigHeadVpnTileService : TileService() {
     private val store by lazy { ProfileStore(this) }
 
+    override fun onCreate() {
+        super.onCreate()
+        activeInstance = this
+    }
+
+    override fun onDestroy() {
+        if (activeInstance === this) activeInstance = null
+        super.onDestroy()
+    }
+
     override fun onStartListening() {
         super.onStartListening()
         updateTile()
@@ -23,8 +35,10 @@ class BigHeadVpnTileService : TileService() {
 
     override fun onClick() {
         super.onClick()
+        if (store.vpnConnecting) return
         if (store.vpnRunning) {
             startService(Intent(this, BigHeadVpnService::class.java).setAction(BigHeadVpnService.ACTION_STOP))
+            store.vpnConnecting = false
             store.vpnRunning = false
             updateTile()
             return
@@ -35,16 +49,27 @@ class BigHeadVpnTileService : TileService() {
             return
         }
 
-        startService(Intent(this, BigHeadVpnService::class.java).setAction(BigHeadVpnService.ACTION_START))
+        store.vpnConnecting = true
+        store.vpnRunning = false
         updateTile()
+        startService(Intent(this, BigHeadVpnService::class.java).setAction(BigHeadVpnService.ACTION_START))
     }
 
     private fun updateTile() {
         val tile = qsTile ?: return
         val running = store.vpnRunning
+        val connecting = store.vpnConnecting
         tile.label = "Big Head VPN"
-        tile.subtitle = if (running) "Включён" else "Выключен"
-        tile.state = if (running) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
+        tile.subtitle = when {
+            connecting -> "Подключение…"
+            running -> "Включён"
+            else -> "Выключен"
+        }
+        tile.state = when {
+            connecting -> Tile.STATE_UNAVAILABLE
+            running -> Tile.STATE_ACTIVE
+            else -> Tile.STATE_INACTIVE
+        }
         tile.icon = Icon.createWithResource(this, R.drawable.ic_status)
         tile.updateTile()
     }
@@ -68,7 +93,10 @@ class BigHeadVpnTileService : TileService() {
     }
 
     companion object {
+        @Volatile private var activeInstance: BigHeadVpnTileService? = null
+
         fun requestTileRefresh(context: Context) {
+            Handler(Looper.getMainLooper()).post { activeInstance?.updateTile() }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 requestListeningState(
                     context,
